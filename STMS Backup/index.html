@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>STMS 재고 관리</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .edit-mode input { width: 100%; border: 1px solid #3b82f6; padding: 2px; }
+        /* 사용자 요청: 노란 배경 + 파란 글씨 + 굵게 + 한 칸으로 합치기 전용 스타일 */
+        .category-row { 
+            background-color: #fef08a !important; 
+            color: #1d4ed8 !important;            
+            font-weight: 800;
+            text-align : center;
+        }
+        #customModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-content { background: white; padding: 2rem; border-radius: 0.5rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2); min-width: 300px; }
+    </style>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-6xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-2xl font-bold mb-6 text-blue-600">STMS 재고 관리 시스템</h1>
+        
+        <div id="drop-zone" class="border-4 border-dashed border-gray-300 p-10 text-center mb-8 rounded-lg cursor-pointer hover:bg-blue-50">
+            <p class="text-gray-500">납품명세서 파일을 드래그하세요.</p>
+        </div>
+
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold">현재 재고 현황</h2>
+            <div id="button-group" class="flex gap-2">
+                <button onclick="fetchInventory()" class="bg-gray-500 text-white px-4 py-2 rounded">새로고침</button>
+                <button id="edit-btn" onclick="showModal()" class="bg-blue-600 text-white px-4 py-2 rounded">수정모드</button>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full border-collapse border border-gray-200 text-sm">
+                <thead class="bg-gray-800 text-white">
+                    <tr id="table-header"></tr>
+                </thead>
+                <tbody id="inventory-body" class="bg-white"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="customModal">
+        <div class="modal-content">
+            <p class="text-lg mb-6 font-semibold text-gray-800">정말 수정하시겠습니까?</p>
+            <div class="flex justify-center gap-4">
+                <button onclick="startEditMode()" class="bg-blue-600 text-white px-6 py-2 rounded">확인</button>
+                <button onclick="closeModal()" class="bg-gray-400 text-white px-6 py-2 rounded">취소</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isEditMode = false;
+        const columns = ['순번', '신품번', '구품번', '품명', '재고수량', '공정 진행중', '입고수량'];
+
+        function showModal() { document.getElementById('customModal').style.display = 'flex'; }
+        function closeModal() { document.getElementById('customModal').style.display = 'none'; }
+
+        async function fetchInventory() {
+            const res = await fetch('/inventory');
+            const data = await res.json();
+            renderTable(data);
+        }
+
+        function renderTable(data) {
+            const header = document.getElementById('table-header');
+            const body = document.getElementById('inventory-body');
+            header.innerHTML = columns.map(c => `<th class="border p-2">${c}</th>`).join('');
+            
+            let html = '';
+
+            //  납품 빈도 : A 는 데이터 바깥에 있으므로 최상단에 고정적으로 먼저 그려줍니다.
+            html += `<tr class="category-row">
+                        <td colspan="${columns.length}" class="border p-3 text-center">납품 빈도 : A</td>
+                     </tr>`;
+
+            data.forEach((item) => {
+                const rowText = Object.values(item).map(v => String(v)).join(' ');
+                
+                const isCategory = rowText.includes('납품') || rowText.includes('어댑터');
+
+                if (isCategory) {
+                    if (rowText.includes('빈도 : A')) return;
+
+                    const displayLabel = Object.values(item).find(v => String(v).includes('납품') || String(v).includes('어댑터')) || "구분 행";
+                    
+                    html += `<tr class="category-row">
+                                <td colspan="${columns.length}" class="border p-3 text-center">${displayLabel}</td>
+                             </tr>`;
+                } else if (item['순번']) { 
+                    html += `<tr>`;
+                    columns.forEach(col => {
+                        html += `<td class="border p-2 text-center" data-col="${col}">${item[col] || ''}</td>`;
+                    });
+                    html += `</tr>`;
+                }
+            });
+            body.innerHTML = html;
+        }
+
+        function startEditMode() {
+            closeModal();
+            isEditMode = true;
+            document.getElementById('button-group').innerHTML = `
+                <button onclick="saveChanges()" class="bg-green-600 text-white px-4 py-2 rounded">저장</button>
+                <button onclick="location.reload()" class="bg-red-50 text-red-600 border border-red-600 px-4 py-2 rounded">되돌리기</button>
+            `;
+            document.querySelectorAll('#inventory-body tr:not(.category-row) td').forEach(td => {
+                const col = td.getAttribute('data-col');
+                if (col !== '순번' && col !== '신품번') {
+                    td.innerHTML = `<input type="text" value="${td.innerText}" class="border p-1">`;
+                    td.classList.add('bg-blue-50');
+                }
+            });
+        }
+
+        async function saveChanges() {
+            const rows = Array.from(document.querySelectorAll('#inventory-body tr:not(.category-row)'));
+            const updatedData = rows.map(row => {
+                const rowData = {};
+                row.querySelectorAll('td').forEach(td => {
+                    const input = td.querySelector('input');
+                    rowData[td.getAttribute('data-col')] = input ? input.value : td.innerText;
+                });
+                return rowData;
+            });
+            const res = await fetch('/update_inventory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedData)
+            });
+            if (res.ok) { alert('저장되었습니다.'); location.reload(); }
+        }
+
+        const dropZone = document.getElementById('drop-zone');
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('bg-blue-100'); };
+        dropZone.ondrop = async (e) => {
+            e.preventDefault();
+            const formData = new FormData();
+            formData.append('file', e.dataTransfer.files[0]);
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const result = await res.json();
+            alert(result.message || result.error);
+            fetchInventory();
+        };
+        window.onload = fetchInventory;
+    </script>
+</body>
+</html>
