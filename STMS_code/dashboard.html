@@ -2,16 +2,760 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>대시보드</title>
+    <title>매출 통계 대시보드</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js DataLabels Plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    <!-- Google Fonts Inter & Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Outfit', sans-serif;
+        }
+    </style>
 </head>
-<body class="bg-gray-50 p-10">
-    <div class="flex justify-between items-center mb-8 border-b-2 pb-4">
-        <h1 class="text-4xl font-extrabold text-blue-600">대시보드</h1>
-        <a href="/" class="bg-gray-500 text-white px-4 py-2 rounded font-bold">메인으로</a>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-8">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- 상단 헤더 -->
+        <div class="flex flex-col md:flex-row justify-between items-center border-b border-slate-800 pb-6 gap-4">
+            <div>
+                <h1 class="text-4xl font-extrabold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">매출 통계 대시보드</h1>
+                <p class="text-slate-400 text-sm mt-1">납품 명세서 기반 실시간 매출 추이 및 재고 변화 통계 분석</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="openSalesExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-900/30">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    매출 엑셀 파일 열기
+                </button>
+                <a href="/" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-5 py-2.5 rounded-lg font-bold transition border border-slate-700">
+                    메인으로
+                </a>
+            </div>
+        </div>
+
+        <!-- 데이터가 없는 경우의 화면 -->
+        <div id="no-data-view" class="hidden my-20 text-center">
+            <div class="max-w-md mx-auto bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-xl">
+                <svg class="w-16 h-16 text-slate-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                <h3 class="text-xl font-bold text-slate-300 mb-2">분석할 매출 데이터가 없습니다</h3>
+                <p class="text-slate-400 text-sm mb-6">납품 명세서 폴더에 저장된 CSV 파일이 없거나 유효한 데이터가 없습니다. 먼저 명세서 파일을 업로드해 주세요.</p>
+                <a href="/inventory_system" class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-lg transition shadow-lg shadow-blue-900/30">
+                    명세서 등록하러 가기
+                </a>
+            </div>
+        </div>
+
+        <!-- 대시보드 콘텐츠 영역 -->
+        <div id="dashboard-content" class="space-y-6">
+            <!-- 1층: 주차 네비게이션 및 요약 정보 -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- 주차 선택 컨트롤러 -->
+                <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl flex flex-col justify-between shadow-xl">
+                    <div>
+                        <label class="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">조회 주차 선택</label>
+                        <div class="flex items-center gap-2">
+                            <button onclick="navigateWeek(-1)" class="bg-slate-700 hover:bg-slate-600 text-slate-200 p-3 rounded-lg transition flex items-center justify-center border border-slate-600">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                            </button>
+                            <select id="week-selector" onchange="selectWeek(this.value)" class="flex-1 bg-slate-900 border border-slate-700 text-slate-100 p-3 rounded-lg font-bold text-center focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <!-- 주차 옵션이 동적으로 채워짐 -->
+                            </select>
+                            <button onclick="navigateWeek(1)" class="bg-slate-700 hover:bg-slate-600 text-slate-200 p-3 rounded-lg transition flex items-center justify-center border border-slate-600">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-4 text-xs text-slate-400 italic">
+                        ※ 일주일 단위로 데이터를 정렬하여 제공합니다.
+                    </div>
+                </div>
+
+                <!-- 주간 총 매출 카드 -->
+                <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl flex flex-col justify-between shadow-xl relative overflow-hidden">
+                    <div class="absolute -right-4 -bottom-4 text-blue-500/10 pointer-events-none">
+                        <svg class="w-32 h-32" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"></path></svg>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 text-xs font-semibold uppercase tracking-wider block mb-1">선택 주차 총 매출</span>
+                        <h2 id="weekly-total-value" class="text-3xl font-black text-blue-400">0 원</h2>
+                    </div>
+                    <div class="mt-4 text-slate-400 text-xs flex items-center gap-1">
+                        <span class="font-semibold text-emerald-400">일주일 집계 기준</span>
+                    </div>
+                </div>
+
+                <!-- 주간 총 납품 수량 카드 -->
+                <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl flex flex-col justify-between shadow-xl relative overflow-hidden">
+                    <div class="absolute -right-4 -bottom-4 text-indigo-500/10 pointer-events-none">
+                        <svg class="w-32 h-32" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M8 3a1 1 0 011-1h2a1 1 0 011 1v18a1 1 0 01-1 1H9a1 1 0 01-1-1V3z"></path><path d="M1 10a1 1 0 011-1h2a1 1 0 011 1v11a1 1 0 01-1 1H2a1 1 0 01-1-1V10z"></path><path d="M15 13a1 1 0 011-1h2a1 1 0 011 1v8a1 1 0 01-1 1h-2a1 1 0 01-1-1v-8z"></path></svg>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 text-xs font-semibold uppercase tracking-wider block mb-1">선택 주차 총 납품 수량</span>
+                        <h2 id="weekly-qty-value" class="text-3xl font-black text-indigo-400">0 개</h2>
+                    </div>
+                    <div class="mt-4 text-slate-400 text-xs">
+                        <span class="font-semibold text-emerald-400">실제 납품 품목 수량 합산</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2층 (신규): 일일 품번별 납품 수량 & 재고현황 변화 그래프 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 그래프 3: 일일 품번별 납품 수량 -->
+                <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-xl flex flex-col h-[500px]">
+                    <div class="mb-4">
+                        <h3 class="text-lg font-bold text-slate-200">일일 품번별 납품 수량 그래프</h3>
+                        <p class="text-slate-400 text-xs">일주일간의 품번별 납품 수량 분포 (가로 누적 막대 그래프, 스크롤 가능)</p>
+                    </div>
+                    <div class="flex-1 overflow-y-auto pr-2 relative">
+                        <!-- Sticky X축 헤더 -->
+                        <div class="sticky top-0 z-10 bg-slate-800" style="height: 45px;">
+                            <canvas id="itemQtyChartHeader"></canvas>
+                        </div>
+                        <div id="item-qty-chart-container" class="relative">
+                            <canvas id="itemQtyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 그래프 4: 재고현황 변화 -->
+                <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-xl flex flex-col h-[500px]">
+                    <div class="flex justify-between items-center mb-4 gap-4">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-200">재고현황 변화 그래프</h3>
+                            <p class="text-slate-400 text-xs">선택 품번의 주간 일일 재고 변화 추이 (꺾은선 그래프)</p>
+                        </div>
+                        <!-- 품번 선택 드롭다운 -->
+                        <select id="inventory-item-selector" onchange="renderInventoryTrend(this.value)" class="bg-slate-900 border border-slate-700 text-slate-100 p-2.5 rounded-lg text-sm max-w-[240px] focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <!-- 파싱된 품번 목록이 동적으로 optgroup 별로 채워짐 -->
+                        </select>
+                    </div>
+                    <div class="flex-1 relative min-h-0">
+                        <canvas id="inventoryTrendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3층 (기존): 일일 품번별 매출 & 일일 총 매출 그래프 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 그래프 1: 일일 품번별 매출 -->
+                <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-xl flex flex-col h-[500px]">
+                    <div class="mb-4">
+                        <h3 class="text-lg font-bold text-slate-200">일일 품번별 매출 그래프</h3>
+                        <p class="text-slate-400 text-xs">일주일간의 품번별 매출 분포 (가로 누적 막대 그래프, 스크롤 가능)</p>
+                    </div>
+                    <div class="flex-1 overflow-y-auto pr-2 relative">
+                        <!-- Sticky X축 헤더 -->
+                        <div class="sticky top-0 z-10 bg-slate-800" style="height: 45px;">
+                            <canvas id="itemSalesChartHeader"></canvas>
+                        </div>
+                        <div id="item-chart-container" class="relative">
+                            <canvas id="itemSalesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 그래프 2: 일일 총 매출 -->
+                <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-xl flex flex-col h-[500px]">
+                    <div class="mb-4">
+                        <h3 class="text-lg font-bold text-slate-200">일일 총 매출 그래프</h3>
+                        <p class="text-slate-400 text-xs">일주일간의 일일 매출 합계 추이 (꺾은선 그래프)</p>
+                    </div>
+                    <div class="flex-1 relative min-h-0">
+                        <canvas id="totalSalesChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="h-96 border-4 border-dashed border-gray-200 flex items-center justify-center rounded-2xl">
-        <p class="text-gray-400 text-2xl font-bold italic">통계 데이터 준비 중...</p>
+
+    <!-- 로딩 스피너 및 알림 -->
+    <div id="loading-overlay" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div class="text-center">
+            <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p class="text-slate-300 font-semibold">매출 데이터를 분석하고 있습니다...</p>
+        </div>
     </div>
+
+    <script>
+        // Chart.js DataLabels 플러그인 전역 등록
+        Chart.register(ChartDataLabels);
+
+        let salesData = null;
+        let weekList = [];
+        let activeWeekIndex = -1;
+
+        let itemChart = null;
+        let itemChartHeader = null;
+        let itemQtyChart = null;
+        let itemQtyChartHeader = null;
+        let trendChart = null;
+        let totalChart = null;
+
+        const dayColors = [
+            'rgba(239, 68, 68, 0.8)',   // 일 (Red)
+            'rgba(59, 130, 246, 0.8)',  // 월 (Blue)
+            'rgba(16, 185, 129, 0.8)',  // 화 (Green)
+            'rgba(245, 158, 11, 0.8)',  // 수 (Amber)
+            'rgba(139, 92, 246, 0.8)',  // 목 (Purple)
+            'rgba(236, 72, 153, 0.8)',  // 금 (Pink)
+            'rgba(6, 182, 212, 0.8)'    // 토 (Cyan)
+        ];
+
+        function showLoading(show) {
+            document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
+        }
+
+        async function openSalesExcel() {
+            try {
+                const res = await fetch('/open_sales_file', { method: 'POST' });
+                const result = await res.json();
+                if (!res.ok) {
+                    alert(result.error || '엑셀 파일을 열 수 없습니다.');
+                }
+            } catch (error) {
+                alert('서버와 통신 중 오류가 발생했습니다.');
+            }
+        }
+
+        function getWeekRangeStr(dateStr) {
+            const d = new Date(dateStr);
+            const day = d.getDay();
+            const diff = d.getDate() - (day === 0 ? 6 : day - 1);
+            const monday = new Date(d.setDate(diff));
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+
+            const formatDate = (date) => {
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            };
+            return `${formatDate(monday)} ~ ${formatDate(sunday)}`;
+        }
+
+        function get7DaysOfWeek(weekStr) {
+            const startDateStr = weekStr.split(' ~ ')[0];
+            const days = [];
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(startDateStr);
+                d.setDate(d.getDate() + i);
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                days.push(`${y}-${m}-${day}`);
+            }
+            return days;
+        }
+
+        async function initDashboard() {
+            showLoading(true);
+            try {
+                const res = await fetch('/api/sales_data');
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    const errMsg = errData.error || '데이터를 불러올 수 없습니다.';
+                    document.getElementById('dashboard-content').style.display = 'none';
+                    document.getElementById('no-data-view').style.display = 'block';
+                    document.querySelector('#no-data-view p').innerText = errMsg;
+                    showLoading(false);
+                    return;
+                }
+                salesData = await res.json();
+                
+                const weeksSet = new Set();
+                salesData.daily_total.forEach(row => {
+                    weeksSet.add(getWeekRangeStr(row['날짜']));
+                });
+                
+                weekList = Array.from(weeksSet).sort((a, b) => b.localeCompare(a));
+                
+                if (weekList.length === 0) {
+                    document.getElementById('dashboard-content').style.display = 'none';
+                    document.getElementById('no-data-view').style.display = 'block';
+                    showLoading(false);
+                    return;
+                }
+
+                // 주차 선택 셀렉트 채우기
+                const selector = document.getElementById('week-selector');
+                selector.innerHTML = weekList.map(week => `<option value="${week}">${week}</option>`).join('');
+
+                // 품번 선택 드롭다운 채우기 (납품 빈도별 그룹화)
+                buildInventorySelector();
+
+                activeWeekIndex = 0;
+                selector.value = weekList[activeWeekIndex];
+                
+                renderCharts(weekList[activeWeekIndex]);
+            } catch (err) {
+                console.error(err);
+                document.getElementById('dashboard-content').style.display = 'none';
+                document.getElementById('no-data-view').style.display = 'block';
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function buildInventorySelector() {
+            const selector = document.getElementById('inventory-item-selector');
+            if (!salesData || !salesData.inventory || salesData.inventory.length === 0) {
+                selector.innerHTML = '<option value="">품목 없음</option>';
+                return;
+            }
+
+            // 납품 빈도에 따라 품목 그룹화
+            const groups = {};
+            salesData.inventory.forEach(item => {
+                const freq = item['납품빈도'] || '기타';
+                if (!groups[freq]) groups[freq] = [];
+                groups[freq].push(item);
+            });
+
+            let html = '';
+            // 빈도 순서대로 optgroup 생성
+            Object.keys(groups).sort().forEach(freq => {
+                html += `<optgroup label="납품 빈도 : ${freq}">`;
+                groups[freq].forEach(item => {
+                    html += `<option value="${item['신품번']}">${item['신품번']} (현재 재고: ${item['재고수량'].toLocaleString()}개)</option>`;
+                });
+                html += `</optgroup>`;
+            });
+            selector.innerHTML = html;
+        }
+
+        function selectWeek(weekStr) {
+            activeWeekIndex = weekList.indexOf(weekStr);
+            renderCharts(weekStr);
+        }
+
+        function navigateWeek(dir) {
+            const nextIdx = activeWeekIndex - dir;
+            if (nextIdx >= 0 && nextIdx < weekList.length) {
+                activeWeekIndex = nextIdx;
+                const weekStr = weekList[activeWeekIndex];
+                document.getElementById('week-selector').value = weekStr;
+                renderCharts(weekStr);
+            }
+        }
+
+        function renderInventoryTrend(selectedPNo) {
+            if (!salesData || !salesData.inventory || salesData.inventory.length === 0) return;
+            
+            const selector = document.getElementById('inventory-item-selector');
+            if (!selectedPNo) {
+                selectedPNo = selector.value;
+            }
+            if (!selectedPNo) return;
+
+            const weekStr = document.getElementById('week-selector').value;
+            const days7 = get7DaysOfWeek(weekStr);
+            
+            // 일일 품명별 매출/수량 필터링
+            const weekItemData = salesData.daily_item.filter(r => getWeekRangeStr(r['날짜']) === weekStr);
+
+            const pInfo = salesData.inventory.find(r => r['신품번'] === selectedPNo);
+            const baseStock = pInfo ? pInfo['재고수량'] : 0;
+
+            // 해당 주간 요일별 납품수량
+            const dailyQtys = days7.map(day => {
+                const matches = weekItemData.filter(r => r['날짜'] === day && r['품번'] === selectedPNo);
+                return matches.reduce((sum, r) => sum + (r['납품수량'] || 0), 0);
+            });
+
+            const totalQty = dailyQtys.reduce((a, b) => a + b, 0);
+
+            // 역산 시뮬레이션: 월요일 시작 재고 = 현재 재고 + 주간 총 출고량
+            let currentStock = baseStock + totalQty;
+            const stockHistory = [];
+            for (let i = 0; i < 7; i++) {
+                stockHistory.push(currentStock);
+                currentStock -= dailyQtys[i];
+            }
+
+            const dayLabels = days7.map(day => {
+                const d = new Date(day);
+                const daysOfWeek = ['일', '월', '화', '수', '목', '금', '토'];
+                return `${day.substring(5)} (${daysOfWeek[d.getDay()]})`;
+            });
+
+            const ctxTrend = document.getElementById('inventoryTrendChart').getContext('2d');
+            if (trendChart) trendChart.destroy();
+            
+            trendChart = new Chart(ctxTrend, {
+                type: 'line',
+                data: {
+                    labels: dayLabels,
+                    datasets: [{
+                        label: `${selectedPNo} 재고 변화`,
+                        data: stockHistory,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 3,
+                        pointBackgroundColor: '#10b981',
+                        pointBorderColor: '#fff',
+                        pointHoverRadius: 6,
+                        fill: true,
+                        tension: 0.2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: {
+                            display: true,
+                            anchor: 'top',
+                            align: 'top',
+                            color: '#10b981',
+                            font: { weight: 'bold', size: 10 },
+                            formatter: value => value.toLocaleString() + '개'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `재고수량: ${context.raw.toLocaleString()} 개`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        y: {
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderCharts(weekStr) {
+            const days7 = get7DaysOfWeek(weekStr);
+
+            // 1. 일일 총 매출
+            const weekTotalData = days7.map(day => {
+                const match = salesData.daily_total.find(r => r['날짜'] === day);
+                return match ? match['일일 총 매출'] : 0;
+            });
+
+            // 2. 일일 품번별 매출/수량 필터링
+            const weekItemData = salesData.daily_item.filter(r => getWeekRangeStr(r['날짜']) === weekStr);
+
+            // 해당 주간 고유 품번 구하기 (신품번 순서 엑셀 기준 정렬)
+            const weekPNoSet = new Set(weekItemData.map(r => r['품번']));
+            const uniqueItems = salesData.inventory
+                .map(r => r['신품번'])
+                .filter(pNo => weekPNoSet.has(pNo));
+
+            if (uniqueItems.length === 0) {
+                uniqueItems.push("데이터 없음");
+            }
+
+            const dayLabels = days7.map(day => {
+                const d = new Date(day);
+                const daysOfWeek = ['일', '월', '화', '수', '목', '금', '토'];
+                return `${day.substring(5)} (${daysOfWeek[d.getDay()]})`;
+            });
+
+            // 데이터셋 생성 공통화
+            const barDatasets = days7.map((targetDate, dayIdx) => {
+                const d = new Date(targetDate);
+                const dayNum = d.getDay();
+                const data = uniqueItems.map(pNo => {
+                    const matches = weekItemData.filter(r => r['날짜'] === targetDate && r['품번'] === pNo);
+                    return matches.reduce((sum, r) => sum + (r['매출'] || 0), 0);
+                });
+                return {
+                    label: dayLabels[dayIdx],
+                    data: data,
+                    backgroundColor: dayColors[dayNum],
+                    borderColor: dayColors[dayNum].replace('0.8', '1'),
+                    borderWidth: 1
+                };
+            });
+
+            const qtyDatasets = days7.map((targetDate, dayIdx) => {
+                const d = new Date(targetDate);
+                const dayNum = d.getDay();
+                const data = uniqueItems.map(pNo => {
+                    const matches = weekItemData.filter(r => r['날짜'] === targetDate && r['품번'] === pNo);
+                    return matches.reduce((sum, r) => sum + (r['납품수량'] || 0), 0);
+                });
+                return {
+                    label: dayLabels[dayIdx],
+                    data: data,
+                    backgroundColor: dayColors[dayNum],
+                    borderColor: dayColors[dayNum].replace('0.8', '1'),
+                    borderWidth: 1
+                };
+            });
+
+            // 스케일 최댓값(Max) 계산
+            let maxSalesSum = 10000;
+            let maxQtySum = 10;
+            uniqueItems.forEach(pNo => {
+                const pSalesSum = weekItemData.filter(r => r['품번'] === pNo).reduce((sum, r) => sum + (r['매출'] || 0), 0);
+                if (pSalesSum > maxSalesSum) maxSalesSum = pSalesSum;
+
+                const pQtySum = weekItemData.filter(r => r['품번'] === pNo).reduce((sum, r) => sum + (r['납품수량'] || 0), 0);
+                if (pQtySum > maxQtySum) maxQtySum = pQtySum;
+            });
+            const salesScaleMax = Math.ceil(maxSalesSum * 1.15 / 10000) * 10000;
+            const qtyScaleMax = Math.ceil(maxQtySum * 1.15 / 5) * 5;
+
+            // 컨테이너 높이 동적 설정
+            const dynamicHeight = Math.max(380, uniqueItems.length * 35 + 80);
+            document.getElementById('item-chart-container').style.height = dynamicHeight + 'px';
+            document.getElementById('item-qty-chart-container').style.height = dynamicHeight + 'px';
+
+            // KPI 카드 반영
+            const weekTotalSum = weekTotalData.reduce((a, b) => a + b, 0);
+            document.getElementById('weekly-total-value').innerText = weekTotalSum.toLocaleString() + ' 원';
+
+            const weekQtySum = weekItemData.reduce((sum, r) => sum + (r['납품수량'] || 0), 0);
+            document.getElementById('weekly-qty-value').innerText = weekQtySum.toLocaleString() + ' 개';
+
+            // --- 1. 일일 품번별 매출 그래프 (Header) ---
+            const ctxItemHeader = document.getElementById('itemSalesChartHeader').getContext('2d');
+            if (itemChartHeader) itemChartHeader.destroy();
+            itemChartHeader = new Chart(ctxItemHeader, {
+                type: 'bar',
+                data: { labels: uniqueItems, datasets: [] },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            position: 'top',
+                            min: 0,
+                            max: salesScaleMax,
+                            grid: { color: '#334155' },
+                            ticks: {
+                                color: '#94a3b8',
+                                font: { size: 10 },
+                                callback: value => value.toLocaleString() + '원'
+                            }
+                        },
+                        y: { display: false }
+                    }
+                }
+            });
+
+            // --- 1. 일일 품번별 매출 그래프 (Body) ---
+            const ctxItem = document.getElementById('itemSalesChart').getContext('2d');
+            if (itemChart) itemChart.destroy();
+            itemChart = new Chart(ctxItem, {
+                type: 'bar',
+                data: { labels: uniqueItems, datasets: barDatasets },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    const pNo = context[0].label;
+                                    const match = weekItemData.find(r => r['품번'] === pNo);
+                                    const pName = match ? match['품명'] : '';
+                                    return `${pNo}\n(${pName})`;
+                                },
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.raw.toLocaleString()} 원`;
+                                }
+                            }
+                        },
+                        datalabels: {
+                            anchor: 'end',
+                            align: 'right',
+                            color: '#cbd5e1',
+                            offset: 4,
+                            font: { weight: 'bold', size: 10 },
+                            formatter: (value, context) => {
+                                const datasetIdx = context.datasetIndex;
+                                const datasets = context.chart.data.datasets;
+                                if (datasetIdx === datasets.length - 1) {
+                                    const dataIdx = context.dataIndex;
+                                    let total = 0;
+                                    for (let i = 0; i < datasets.length; i++) {
+                                        total += datasets[i].data[dataIdx] || 0;
+                                    }
+                                    if (total === 0) return '';
+                                    const pNo = context.chart.data.labels[dataIdx];
+                                    const qtySum = weekItemData.filter(r => r['품번'] === pNo).reduce((sum, r) => sum + r['납품수량'], 0);
+                                    return qtySum + '개';
+                                }
+                                return '';
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            min: 0,
+                            max: salesScaleMax,
+                            display: true,
+                            grid: { color: '#334155', drawOnChartArea: true, drawTicks: false },
+                            ticks: { display: false }
+                        },
+                        y: { stacked: true, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+
+            // --- 3. 일일 품번별 납품 수량 그래프 (Header) ---
+            const ctxQtyHeader = document.getElementById('itemQtyChartHeader').getContext('2d');
+            if (itemQtyChartHeader) itemQtyChartHeader.destroy();
+            itemQtyChartHeader = new Chart(ctxQtyHeader, {
+                type: 'bar',
+                data: { labels: uniqueItems, datasets: [] },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false },
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            position: 'top',
+                            min: 0,
+                            max: qtyScaleMax,
+                            grid: { color: '#334155' },
+                            ticks: {
+                                color: '#94a3b8',
+                                font: { size: 10 },
+                                callback: value => value.toLocaleString() + '개'
+                            }
+                        },
+                        y: { display: false }
+                    }
+                }
+            });
+
+            // --- 3. 일일 품번별 납품 수량 그래프 (Body) ---
+            const ctxQty = document.getElementById('itemQtyChart').getContext('2d');
+            if (itemQtyChart) itemQtyChart.destroy();
+            itemQtyChart = new Chart(ctxQty, {
+                type: 'bar',
+                data: { labels: uniqueItems, datasets: qtyDatasets },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    const pNo = context[0].label;
+                                    const match = weekItemData.find(r => r['품번'] === pNo);
+                                    const pName = match ? match['품명'] : '';
+                                    return `${pNo}\n(${pName})`;
+                                },
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.raw.toLocaleString()} 개`;
+                                }
+                            }
+                        },
+                        datalabels: {
+                            anchor: 'end',
+                            align: 'right',
+                            color: '#cbd5e1',
+                            offset: 4,
+                            font: { weight: 'bold', size: 10 },
+                            formatter: (value, context) => {
+                                const datasetIdx = context.datasetIndex;
+                                const datasets = context.chart.data.datasets;
+                                if (datasetIdx === datasets.length - 1) {
+                                    const dataIdx = context.dataIndex;
+                                    let total = 0;
+                                    for (let i = 0; i < datasets.length; i++) {
+                                        total += datasets[i].data[dataIdx] || 0;
+                                    }
+                                    if (total === 0) return '';
+                                    return total + '개';
+                                }
+                                return '';
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            min: 0,
+                            max: qtyScaleMax,
+                            display: true,
+                            grid: { color: '#334155', drawOnChartArea: true, drawTicks: false },
+                            ticks: { display: false }
+                        },
+                        y: { stacked: true, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+                    }
+                }
+            });
+
+            // 4. 재고현황 변화 그래프 호출
+            renderInventoryTrend();
+
+            // 2. 일일 총 매출 차트 (Line Chart)
+            const ctxTotal = document.getElementById('totalSalesChart').getContext('2d');
+            if (totalChart) totalChart.destroy();
+            totalChart = new Chart(ctxTotal, {
+                type: 'line',
+                data: {
+                    labels: dayLabels,
+                    datasets: [{
+                        label: '일일 총 매출',
+                        data: weekTotalData,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 3,
+                        pointBackgroundColor: '#3b82f6',
+                        pointBorderColor: '#fff',
+                        pointHoverRadius: 6,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `총 매출: ${context.raw.toLocaleString()} 원`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                        y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8', callback: value => value.toLocaleString() + '원' } }
+                    }
+                }
+            });
+        }
+
+        window.onload = initDashboard;
+    </script>
 </body>
 </html>

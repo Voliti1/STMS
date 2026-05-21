@@ -1,6 +1,8 @@
 import sys
 import os
 import threading
+import re
+import shutil
 from datetime import datetime
 from flask import Flask, request, jsonify
 import pandas as pd
@@ -9,9 +11,207 @@ import webview
 
 app = Flask(__name__)
 
-# 재고 DB 파일 이름 및 폴더 설정 [cite: 370]
+# 재고 DB 파일 이름 및 폴더 설정
 DB_FILE = '부품_재고현황.xlsx'
 SAVE_FOLDER = '납품 명세서'
+PRICE_FILE = '단가.xlsx'
+SALES_FILE = '매출.xlsx'
+
+def get_price_file():
+    # 작업 디렉토리에 단가.xlsx가 없으면 dist 또는 Backup 폴더에서 가져옵니다.
+    if not os.path.exists(PRICE_FILE):
+        dist_path = os.path.join('dist', PRICE_FILE)
+        backup_path = os.path.join('STMS Backup', PRICE_FILE)
+        if os.path.exists(dist_path):
+            shutil.copy(dist_path, PRICE_FILE)
+        elif os.path.exists(backup_path):
+            shutil.copy(backup_path, PRICE_FILE)
+        else:
+            raise FileNotFoundError("단가.xlsx 파일을 찾을 수 없습니다. STMS_code 폴더에 단가.xlsx 파일을 추가해 주세요.")
+
+def calculate_sales():
+    get_price_file()
+    
+    if not os.path.exists(SAVE_FOLDER):
+        os.makedirs(SAVE_FOLDER)
+        
+    csv_files = [f for f in os.listdir(SAVE_FOLDER) if f.endswith('.csv')]
+    if not csv_files:
+        return None
+        
+    price_df = pd.read_excel(PRICE_FILE)
+    price_df['품번'] = price_df['품번'].astype(str).str.strip()
+    price_dict = dict(zip(price_df['품번'], price_df['단가']))
+    price_name_dict = dict(zip(price_df['품번'], price_df['품명']))
+    
+    all_records = []
+    for csv_file in csv_files:
+        csv_path = os.path.join(SAVE_FOLDER, csv_file)
+        
+        # 날짜 정규식 파싱 시도 (실패 시 파일 수정일로 폴백)
+        match = re.search(r'_(\d{8})\.csv$', csv_file)
+        if match:
+            date_str = match.group(1)
+            formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+        else:
+            try:
+                mtime = os.path.getmtime(csv_path)
+                formatted_date = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
+            except Exception:
+                continue
+        
+        # 다중 인코딩 시도로 안전하게 CSV 파일 로드
+        df = None
+        for enc in ['utf-8-sig', 'cp949', 'utf-8', 'euc-kr']:
+            try:
+                df = pd.read_csv(csv_path, encoding=enc)
+                break
+            except Exception:
+                continue
+                
+        if df is None:
+            print(f"[Error] 인코딩 오류로 CSV 파일을 읽을 수 없습니다: {csv_file}")
+            continue
+            
+        df.columns = [str(c).strip() for c in df.columns]
+        if '품번' not in df.columns or '납품수량' not in df.columns:
+            continue
+            
+        for _, row in df.iterrows():
+            p_no = str(row['품번']).strip()
+            if not p_no or p_no == 'nan':
+                continue
+            try:
+                qty = float(str(row['납품수량']).replace(',', ''))
+            except ValueError:
+                qty = 0.0
+                
+            unit_price = price_dict.get(p_no, 0)
+            p_name = price_name_dict.get(p_no, str(row.get('품명', '')).strip())
+            amount = unit_price * qty
+            
+            all_records.append({
+                '날짜': formatted_date,
+                '품번': p_no,
+                '품명': p_name,
+                '납품수량': qty,
+                '단가': unit_price,
+                '매출': amount
+            })
+            
+    if not all_records:
+        return None
+        
+    sales_df = pd.DataFrame(all_records)
+    sales_df['날짜_dt'] = pd.to_datetime(sales_df['날짜'])
+    
+    # 1. 일일 품명별 매출
+    daily_item = sales_df.groupby(['날짜', '품번', '품명'], as_index=False)[['납품수량', '매출']].sum()
+    
+    # 2. 일일 총 매출
+    daily_total = sales_df.groupby('날짜', as_index=False)['매출'].sum()
+    daily_total.rename(columns={'매출': '일일 총 매출'}, inplace=True)
+    
+    summary_df = sales_df.copy()
+    
+    # 3. 주간 총 매출
+    summary_df['주차_시작'] = summary_df['날짜_dt'] - pd.to_timedelta(summary_df['날짜_dt'].dt.weekday, unit='D')
+    summary_df['주차_끝'] = summary_df['주차_시작'] + pd.to_timedelta(6, unit='D')
+    summary_df['주간'] = summary_df.apply(lambda r: f"{r['주차_시작'].strftime('%Y-%m-%d')} ~ {r['주차_끝'].strftime('%Y-%m-%d')}", axis=1)
+    weekly_total = summary_df.groupby('주간', as_index=False)['매출'].sum()
+    weekly_total.rename(columns={'매출': '주간 총 매출'}, inplace=True)
+    
+    # 4. 월간 총 매출
+    summary_df['월간'] = summary_df['날짜_dt'].dt.strftime('%Y-%m')
+    monthly_total = summary_df.groupby('월간', as_index=False)['매출'].sum()
+    monthly_total.rename(columns={'매출': '월간 총 매출'}, inplace=True)
+    
+    # 5. 분기 총 매출
+    summary_df['분기'] = summary_df['날짜_dt'].apply(lambda x: f"{x.year}-Q{(x.month-1)//3 + 1}")
+    quarterly_total = summary_df.groupby('분기', as_index=False)['매출'].sum()
+    quarterly_total.rename(columns={'매출': '분기 총 매출'}, inplace=True)
+    
+    # 6. 반기 총 매출
+    summary_df['반기'] = summary_df['날짜_dt'].apply(lambda x: f"{x.year}-{(x.month-1)//6 + 1}H")
+    half_yearly_total = summary_df.groupby('반기', as_index=False)['매출'].sum()
+    half_yearly_total.rename(columns={'매출': '반기 총 매출'}, inplace=True)
+    
+    # 7. 연간 총 매출
+    summary_df['연간'] = summary_df['날짜_dt'].dt.strftime('%Y')
+    yearly_total = summary_df.groupby('연간', as_index=False)['매출'].sum()
+    yearly_total.rename(columns={'매출': '연간 총 매출'}, inplace=True)
+    
+    # 엑셀 파일 저장
+    with pd.ExcelWriter(SALES_FILE, engine='openpyxl') as writer:
+        daily_item.to_excel(writer, sheet_name='일일 품명별 매출', index=False)
+        daily_total.to_excel(writer, sheet_name='일일 총 매출', index=False)
+        weekly_total.to_excel(writer, sheet_name='주간 총 매출', index=False)
+        monthly_total.to_excel(writer, sheet_name='월간 총 매출', index=False)
+        quarterly_total.to_excel(writer, sheet_name='분기 총 매출', index=False)
+        half_yearly_total.to_excel(writer, sheet_name='반기 총 매출', index=False)
+        yearly_total.to_excel(writer, sheet_name='연간 총 매출', index=False)
+        
+    return {
+        'daily_item': daily_item.to_dict(orient='records'),
+        'daily_total': daily_total.to_dict(orient='records'),
+        'weekly_total': weekly_total.to_dict(orient='records'),
+        'monthly_total': monthly_total.to_dict(orient='records'),
+        'quarterly_total': quarterly_total.to_dict(orient='records'),
+        'half_yearly_total': half_yearly_total.to_dict(orient='records'),
+        'yearly_total': yearly_total.to_dict(orient='records'),
+        'inventory': parse_inventory()
+    }
+
+def parse_inventory():
+    file_path = 'dist/부품_재고현황.xlsx'
+    if not os.path.exists(file_path):
+        file_path = '부품_재고현황.xlsx'
+    if not os.path.exists(file_path):
+        backup_path = 'STMS Backup/부품_재고현황.xlsx'
+        if os.path.exists(backup_path):
+            try:
+                shutil.copy(backup_path, '부품_재고현황.xlsx')
+                file_path = '부품_재고현황.xlsx'
+            except Exception:
+                pass
+                
+    if not os.path.exists(file_path):
+        return []
+        
+    try:
+        df = pd.read_excel(file_path, header=None)
+        inventory_list = []
+        current_freq = ""
+        
+        for idx, row in df.iterrows():
+            val0 = str(row[0]).strip() if pd.notna(row[0]) else ""
+            if "납품 빈도" in val0:
+                current_freq = val0.replace("납품 빈도 :", "").strip()
+                continue
+                
+            val1 = str(row[1]).strip() if pd.notna(row[1]) else ""
+            if val1 == "신품번" or val1 == "" or val0 == "순번":
+                continue
+                
+            p_no = val1
+            try:
+                qty_val = row[4]
+                if pd.isna(qty_val) or str(qty_val).strip() == '-':
+                    stock_qty = 0
+                else:
+                    stock_qty = int(qty_val)
+            except Exception:
+                stock_qty = 0
+                
+            inventory_list.append({
+                "신품번": p_no,
+                "납품빈도": current_freq,
+                "재고수량": stock_qty
+            })
+        return inventory_list
+    except Exception as e:
+        print(f"인벤토리 파싱 에러: {e}")
+        return []
 
 def resource_path(relative_path):
     try:
@@ -123,6 +323,39 @@ def upload_file():
             "lineData": chart_data_today,
             "barData": chart_data_total
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/open_folder', methods=['POST'])
+def open_folder():
+    if not os.path.exists(SAVE_FOLDER):
+        os.makedirs(SAVE_FOLDER)
+    try:
+        os.startfile(os.path.abspath(SAVE_FOLDER))
+        return jsonify({"status": "success", "message": "폴더가 열렸습니다."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/sales_data', methods=['GET'])
+def get_sales_data():
+    try:
+        data = calculate_sales()
+        if data is None:
+            return jsonify({"error": "매출 계산에 필요한 CSV 데이터가 없습니다."}), 404
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/open_sales_file', methods=['POST'])
+def open_sales_file():
+    try:
+        if not os.path.exists(SALES_FILE):
+            calculate_sales()
+        if os.path.exists(SALES_FILE):
+            os.startfile(os.path.abspath(SALES_FILE))
+            return jsonify({"status": "success", "message": "매출.xlsx 파일이 열렸습니다."})
+        else:
+            return jsonify({"error": "매출.xlsx 파일이 존재하지 않고 계산할 데이터도 없습니다."}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
