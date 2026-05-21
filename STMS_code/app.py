@@ -162,18 +162,19 @@ def calculate_sales():
         'inventory': parse_inventory()
     }
 
-def parse_inventory():
-    file_path = 'dist/부품_재고현황.xlsx'
-    if not os.path.exists(file_path):
-        file_path = '부품_재고현황.xlsx'
-    if not os.path.exists(file_path):
-        backup_path = 'STMS Backup/부품_재고현황.xlsx'
-        if os.path.exists(backup_path):
-            try:
-                shutil.copy(backup_path, '부품_재고현황.xlsx')
-                file_path = '부품_재고현황.xlsx'
-            except Exception:
-                pass
+def parse_inventory(file_path=None):
+    if file_path is None:
+        file_path = 'dist/부품_재고현황.xlsx'
+        if not os.path.exists(file_path):
+            file_path = '부품_재고현황.xlsx'
+        if not os.path.exists(file_path):
+            backup_path = 'STMS Backup/부품_재고현황.xlsx'
+            if os.path.exists(backup_path):
+                try:
+                    shutil.copy(backup_path, '부품_재고현황.xlsx')
+                    file_path = '부품_재고현황.xlsx'
+                except Exception:
+                    pass
                 
     if not os.path.exists(file_path):
         return []
@@ -223,13 +224,14 @@ def resource_path(relative_path):
 # --- 페이지 라우팅 ---
 
 @app.route('/')
-def landing():
-    """초기 선택 페이지"""
-    path = resource_path('landing.html')
+@app.route('/dashboard')
+def dashboard_page():
+    """대시보드 페이지 (초기 화면)"""
+    path = resource_path('dashboard.html')
     try:
         return open(path, encoding='utf-8').read()
     except FileNotFoundError:
-        return "landing.html 파일을 찾을 수 없습니다."
+        return "dashboard.html 파일을 찾을 수 없습니다."
 
 @app.route('/inventory_system')
 def inventory_system():
@@ -240,14 +242,6 @@ def inventory_system():
     except FileNotFoundError:
         return "index.html 파일을 찾을 수 없습니다."
 
-@app.route('/dashboard')
-def dashboard_page():
-    """대시보드 페이지 (플레이스홀더)"""
-    path = resource_path('dashboard.html')
-    try:
-        return open(path, encoding='utf-8').read()
-    except FileNotFoundError:
-        return "dashboard.html 파일을 찾을 수 없습니다."
 
 # --- 기존 데이터 처리 로직 ---
 
@@ -286,6 +280,47 @@ def upload_file():
         csv_filename = f"{base_name}_{today_str}.csv"
         csv_path = os.path.join(SAVE_FOLDER, csv_filename)
         delivery_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+
+        # 변경 이전 재고현황 백업 저장 (부품_재고현황.json 단일 파일에 누적)
+        json_file_path = '부품_재고현황.json'
+        before_inventory = parse_inventory(DB_FILE)
+        
+        import json
+        try:
+            history_data = {}
+            if os.path.exists(json_file_path):
+                try:
+                    with open(json_file_path, 'r', encoding='utf-8') as f:
+                        history_data = json.load(f)
+                except Exception as ex:
+                    print(f"[Backup] 기존 JSON 읽기 실패(신규 생성): {ex}")
+                    history_data = {}
+            
+            today_int = int(today_str)
+            for item in before_inventory:
+                p_no = item.get('신품번')
+                if not p_no:
+                    continue
+                stock_qty = item.get('재고수량', 0)
+                
+                if p_no not in history_data:
+                    history_data[p_no] = []
+                
+                # 동일 날짜가 있는지 체크하여 덮어쓰거나 새로 추가
+                existing_entry = next((x for x in history_data[p_no] if x.get('날짜') == today_int), None)
+                if existing_entry:
+                    existing_entry['재고수량'] = stock_qty
+                else:
+                    history_data[p_no].append({
+                        "날짜": today_int,
+                        "재고수량": stock_qty
+                    })
+            
+            with open(json_file_path, 'w', encoding='utf-8') as f:
+                json.dump(history_data, f, ensure_ascii=False, indent=4)
+            print(f"[Backup] 부품_재고현황.json 누적 백업 완료")
+        except Exception as e:
+            print(f"[Backup Error] 부품_재고현황.json 백업 실패: {e}")
 
         # 재고 차감 로직 (서식 유지) [cite: 265, 512]
         wb = openpyxl.load_workbook(DB_FILE)
@@ -346,6 +381,37 @@ def get_sales_data():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/inventory_history', methods=['GET'])
+def get_inventory_history():
+    p_no = request.args.get('p_no', '').strip()
+    if not p_no:
+        return jsonify({"error": "품번(p_no) 매개변수가 필요합니다."}), 400
+        
+    json_file_path = '부품_재고현황.json'
+    history = []
+    
+    import json
+    if os.path.exists(json_file_path):
+        try:
+            with open(json_file_path, 'r', encoding='utf-8') as f:
+                history_data = json.load(f)
+            
+            p_history = history_data.get(p_no, [])
+            for item in p_history:
+                date_int = item.get('날짜')
+                qty = item.get('재고수량', 0)
+                if date_int:
+                    date_str = str(date_int)
+                    if len(date_str) == 8:
+                        formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                        history.append({"날짜": formatted_date, "재고수량": qty})
+        except Exception as e:
+            print(f"부품_재고현황.json 파싱 에러: {e}")
+            
+    # 정렬 및 반환
+    sorted_history = sorted(history, key=lambda x: x["날짜"])
+    return jsonify(sorted_history)
+
 @app.route('/open_sales_file', methods=['POST'])
 def open_sales_file():
     try:
@@ -399,9 +465,13 @@ def run_flask():
     app.run(host='127.0.0.1', port=5000)
 
 if __name__ == '__main__':
-    t = threading.Thread(target=run_flask)
-    t.daemon = True
-    t.start()
-    # pywebview를 이용한 전용 창 실행 [cite: 365, 518]
-    webview.create_window('STMS 재고 관리 시스템', 'http://127.0.0.1:5000', width=1200, height=900)
-    webview.start()
+    if os.environ.get('STMS_NO_WEBVIEW') == '1':
+        print("Starting Flask server only (NO_WEBVIEW mode)...")
+        app.run(host='127.0.0.1', port=5000)
+    else:
+        t = threading.Thread(target=run_flask)
+        t.daemon = True
+        t.start()
+        # pywebview를 이용한 전용 창 실행 [cite: 365, 518]
+        webview.create_window('STMS 재고 관리 시스템', 'http://127.0.0.1:5000', width=1200, height=900)
+        webview.start()
