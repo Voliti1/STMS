@@ -4,53 +4,113 @@
     <meta charset="UTF-8">
     <title>STMS 재고 관리</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .category-row { 
-            background-color: #fef08a !important; 
-            color: #1d4ed8 !important;            
-            font-weight: 800;
-            text-align : center;
+    <script>
+        tailwind.config = {
+            darkMode: 'class'
         }
-        #customModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
-        .modal-content { background: white; padding: 2rem; border-radius: 0.5rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2); min-width: 300px; }
+        // 로컬스토리지를 검사해 깜빡임 없이 테마 주입
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+        // 타 창에서의 테마 변경 실시간 반영
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'theme') {
+                if (e.newValue === 'dark') {
+                    document.documentElement.classList.add('dark');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                }
+                if (typeof updateToggleButtons === 'function') {
+                    updateToggleButtons();
+                }
+            }
+        });
+    </script>
+    <!-- Google Fonts Inter & Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Outfit', sans-serif;
+        }
+        #customModal { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
     </style>
 </head>
-<body class="bg-gray-100 p-8">
-    <div class="max-w-6xl mx-auto bg-white p-6 rounded-lg shadow-md">
-        <div class="flex justify-between items-center mb-6">
-            <h1 class="text-2xl font-bold text-blue-600">STMS 재고 관리 시스템</h1>
-            <a href="/" class="bg-gray-200 text-gray-700 px-4 py-2 rounded font-bold hover:bg-gray-300">대시보드로 돌아가기</a>
-        </div>
-        
-        <div id="drop-zone" class="border-4 border-dashed border-gray-300 p-10 text-center mb-8 rounded-lg cursor-pointer hover:bg-blue-50">
-            <p class="text-gray-500 font-bold">납품명세서 엑셀 파일을 이 영역에 드래그하세요.</p>
-        </div>
-
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-semibold">현재 재고 현황</h2>
-            <div id="button-group" class="flex gap-2">
-                <button onclick="openDeliveryFolder()" class="bg-amber-600 text-white px-4 py-2 rounded font-bold hover:bg-amber-700 transition">명세서 폴더</button>
-                <button onclick="fetchInventory()" class="bg-gray-500 text-white px-4 py-2 rounded font-bold">새로고침</button>
-                <button id="edit-btn" onclick="showModal()" class="bg-blue-600 text-white px-4 py-2 rounded font-bold">수정모드</button>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 min-h-screen p-8 transition-colors duration-200">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- 상단 헤더 -->
+        <div class="flex flex-col md:flex-row justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-6 gap-4">
+            <div>
+                <h1 class="text-4xl font-extrabold bg-gradient-to-r from-blue-500 to-indigo-500 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">STMS 재고 관리 시스템</h1>
+                <p class="text-slate-500 dark:text-slate-400 text-sm mt-1">부품 재고 실시간 모니터링 및 납품 명세서 업로드 관리</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button id="theme-toggle" onclick="toggleTheme()" class="bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 p-2.5 rounded-lg transition flex items-center justify-center shadow-lg shadow-slate-200/50 dark:shadow-slate-950/50" title="테마 전환">
+                    <svg id="theme-toggle-light-icon" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.46 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 100 2h1z" fill-rule="evenodd" clip-rule="evenodd"></path></svg>
+                    <svg id="theme-toggle-dark-icon" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
+                </button>
+                <a href="/" class="bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-5 py-2.5 rounded-lg font-bold transition flex items-center gap-2 shadow-lg shadow-slate-200/50 dark:shadow-slate-950/50">
+                    <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg>
+                    대시보드로 돌아가기
+                </a>
             </div>
         </div>
+        
+        <!-- 납품명세서 드롭존 -->
+        <div id="drop-zone" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-8 rounded-2xl shadow-xl transition-all duration-200 flex flex-col items-center justify-center border-2 border-dashed border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer group">
+            <div class="p-4 bg-blue-50 dark:bg-blue-950/50 rounded-full text-blue-600 dark:text-blue-400 group-hover:scale-110 transition duration-200 mb-3">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+            </div>
+            <p class="text-slate-600 dark:text-slate-300 font-bold text-base">납품명세서 엑셀 파일을 이 영역에 드래그하거나 클릭하여 선택하세요.</p>
+            <p class="text-slate-400 dark:text-slate-500 text-xs mt-1">지원 형식: XLSX, XLS (CSV 자동 생성 및 재고 차트 연계)</p>
+        </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full border-collapse border border-gray-200 text-sm">
-                <thead class="bg-gray-800 text-white">
-                    <tr id="table-header"></tr>
-                </thead>
-                <tbody id="inventory-body" class="bg-white"></tbody>
-            </table>
+        <!-- 메인 재고 관리 테이블 영역 -->
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6 rounded-2xl shadow-xl transition-all duration-200 space-y-4">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800 dark:text-slate-200">현재 부품 재고 현황</h2>
+                    <p class="text-slate-400 dark:text-slate-500 text-xs">최종 갱신 기준 실시간 재고 및 공정 진행 수량 정보</p>
+                </div>
+                <div id="button-group" class="flex gap-2 w-full sm:w-auto">
+                    <button onclick="openDeliveryFolder()" class="bg-amber-600 hover:bg-amber-700 text-white text-lg whitespace-nowrap px-5 py-2.5 rounded-lg font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-amber-600/20 dark:shadow-amber-950/30 flex-1 sm:flex-initial">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                        명세서 폴더
+                    </button>
+                    <button onclick="fetchInventory()" class="bg-slate-600 hover:bg-slate-700 text-white text-lg whitespace-nowrap px-5 py-2.5 rounded-lg font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-slate-600/20 flex-1 sm:flex-initial">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18.2"></path></svg>
+                        새로고침
+                    </button>
+                    <button id="edit-btn" onclick="showModal()" class="bg-blue-600 hover:bg-blue-700 text-white text-lg whitespace-nowrap px-5 py-2.5 rounded-lg font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 dark:shadow-blue-950/30 flex-1 sm:flex-initial">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                        수정모드
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table class="w-full border-collapse text-sm text-slate-600 dark:text-slate-300">
+                    <thead class="bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 font-semibold border-b border-slate-200 dark:border-slate-700">
+                        <tr id="table-header"></tr>
+                    </thead>
+                    <tbody id="inventory-body" class="bg-white dark:bg-slate-800 divide-y divide-slate-100 dark:divide-slate-700/50"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
-    <div id="customModal">
-        <div class="modal-content">
-            <p class="text-lg mb-6 font-semibold text-gray-800">정말 수정하시겠습니까?</p>
-            <div class="flex justify-center gap-4">
-                <button onclick="startEditMode()" class="bg-blue-600 text-white px-6 py-2 rounded font-bold">확인</button>
-                <button onclick="closeModal()" class="bg-gray-400 text-white px-6 py-2 rounded font-bold">취소</button>
+    <!-- 수정 확인 모달 -->
+    <div id="customModal" class="px-4">
+        <div class="bg-white dark:bg-slate-800 p-8 rounded-2xl text-center shadow-2xl border border-slate-200 dark:border-slate-700 min-w-[320px] max-w-sm mx-auto transform transition duration-300 scale-95">
+            <div class="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-4">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </div>
+            <p class="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">수정모드 진입</p>
+            <p class="text-slate-500 dark:text-slate-400 text-sm mb-6">부품의 재고, 공정 진행 수량, 입고 수량을 변경할 수 있습니다. 계속하시겠습니까?</p>
+            <div class="flex justify-center gap-3">
+                <button onclick="startEditMode()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold transition shadow-lg shadow-blue-600/20 dark:shadow-blue-950/30 flex-1">확인</button>
+                <button onclick="closeModal()" class="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 px-5 py-2.5 rounded-lg font-bold transition flex-1">취소</button>
             </div>
         </div>
     </div>
@@ -58,6 +118,36 @@
     <script>
         let isEditMode = false;
         const columns = ['순번', '신품번', '구품번', '품명', '재고수량', '공정 진행중', '입고수량'];
+
+        // 테마 토글 및 버튼 갱신 함수
+        function updateToggleButtons() {
+            const isDark = document.documentElement.classList.contains('dark');
+            const lightIcon = document.getElementById('theme-toggle-light-icon');
+            const darkIcon = document.getElementById('theme-toggle-dark-icon');
+            if (lightIcon && darkIcon) {
+                if (isDark) {
+                    lightIcon.classList.remove('hidden');
+                    darkIcon.classList.add('hidden');
+                } else {
+                    lightIcon.classList.add('hidden');
+                    darkIcon.classList.remove('hidden');
+                }
+            }
+        }
+
+        function toggleTheme() {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.setItem('theme', 'light');
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+            }
+            updateToggleButtons();
+        }
+
+        // 초기 테마 토글 버튼 상태 세팅
+        document.addEventListener('DOMContentLoaded', updateToggleButtons);
 
         function showModal() { document.getElementById('customModal').style.display = 'flex'; }
         function closeModal() { document.getElementById('customModal').style.display = 'none'; }
@@ -83,10 +173,10 @@
         function renderTable(data) {
             const header = document.getElementById('table-header');
             const body = document.getElementById('inventory-body');
-            header.innerHTML = columns.map(c => `<th class="border p-2">${c}</th>`).join('');
+            header.innerHTML = columns.map(c => `<th class="p-3.5 border-b border-slate-200 dark:border-slate-700 text-center font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700">${c}</th>`).join('');
             
             let html = '';
-            html += `<tr class="category-row"><td colspan="${columns.length}" class="border p-3">납품 빈도 : A</td></tr>`;
+            html += `<tr class="category-row bg-indigo-50/50 dark:bg-slate-900/60 text-indigo-700 dark:text-indigo-400 font-extrabold border-b border-indigo-100/60 dark:border-slate-700/80"><td colspan="${columns.length}" class="p-3 text-center tracking-wide text-sm uppercase">납품 빈도 : A</td></tr>`;
 
             data.forEach((item) => {
                 const rowText = Object.values(item).map(v => String(v)).join(' ');
@@ -95,11 +185,11 @@
                 if (isCategory) {
                     if (rowText.includes('빈도 : A')) return;
                     const label = Object.values(item).find(v => String(v).includes('납품') || String(v).includes('어댑터')) || "구분 행";
-                    html += `<tr class="category-row"><td colspan="${columns.length}" class="border p-3">${label}</td></tr>`;
+                    html += `<tr class="category-row bg-indigo-50/50 dark:bg-slate-900/60 text-indigo-700 dark:text-indigo-400 font-extrabold border-b border-indigo-100/60 dark:border-slate-700/80"><td colspan="${columns.length}" class="p-3 text-center tracking-wide text-sm uppercase">${label}</td></tr>`;
                 } else if (item['순번']) { 
-                    html += `<tr>`;
+                    html += `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">`;
                     columns.forEach(col => {
-                        html += `<td class="border p-2 text-center" data-col="${col}">${item[col] || ''}</td>`;
+                        html += `<td class="p-3 text-center border-b border-slate-100 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 font-medium" data-col="${col}">${item[col] || ''}</td>`;
                     });
                     html += `</tr>`;
                 }
@@ -111,14 +201,14 @@
             closeModal();
             isEditMode = true;
             document.getElementById('button-group').innerHTML = `
-                <button onclick="saveChanges()" class="bg-green-600 text-white px-4 py-2 rounded font-bold">저장</button>
-                <button onclick="location.reload()" class="bg-red-50 text-red-600 border border-red-600 px-4 py-2 rounded font-bold">되돌리기</button>
+                <button onclick="saveChanges()" class="bg-green-600 hover:bg-green-700 text-white text-lg whitespace-nowrap px-5 py-2.5 rounded-lg font-bold transition shadow-lg shadow-green-600/20 dark:shadow-green-950/30 flex-1 sm:flex-initial">저장</button>
+                <button onclick="location.reload()" class="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 px-5 py-2.5 rounded-lg font-bold transition text-lg whitespace-nowrap flex-1 sm:flex-initial">되돌리기</button>
             `;
             document.querySelectorAll('#inventory-body tr:not(.category-row) td').forEach(td => {
                 const col = td.getAttribute('data-col');
                 if (col !== '순번' && col !== '신품번') {
-                    td.innerHTML = `<input type="text" value="${td.innerText}" class="border p-1 w-full text-center">`;
-                    td.classList.add('bg-blue-50');
+                    td.innerHTML = `<input type="text" value="${td.innerText}" class="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100 p-1 w-full text-center rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm transition-all">`;
+                    td.classList.add('bg-blue-50/20', 'dark:bg-blue-900/10');
                 }
             });
         }
@@ -141,17 +231,54 @@
             if (res.ok) { alert('저장되었습니다.'); location.reload(); }
         }
 
+        // 드롭존 및 클릭 업로드
         const dropZone = document.getElementById('drop-zone');
-        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('bg-blue-100'); };
+        
+        // 클릭 시 파일 탐색기 열기 기능 연동
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.xlsx,.xls';
+        fileInput.className = 'hidden';
+        document.body.appendChild(fileInput);
+
+        dropZone.onclick = () => fileInput.click();
+
+        fileInput.onchange = async (e) => {
+            if (e.target.files.length > 0) {
+                await uploadFile(e.target.files[0]);
+            }
+        };
+
+        dropZone.ondragover = (e) => { 
+            e.preventDefault(); 
+            dropZone.classList.add('bg-slate-100', 'dark:bg-slate-700/80', 'border-blue-500', 'dark:border-blue-400'); 
+        };
+
+        dropZone.ondragleave = () => {
+            dropZone.classList.remove('bg-slate-100', 'dark:bg-slate-700/80', 'border-blue-500', 'dark:border-blue-400');
+        };
+
         dropZone.ondrop = async (e) => {
             e.preventDefault();
-            const formData = new FormData();
-            formData.append('file', e.dataTransfer.files[0]);
-            const res = await fetch('/upload', { method: 'POST', body: formData });
-            const result = await res.json();
-            alert(result.message || result.error);
-            fetchInventory();
+            dropZone.classList.remove('bg-slate-100', 'dark:bg-slate-700/80', 'border-blue-500', 'dark:border-blue-400');
+            if (e.dataTransfer.files.length > 0) {
+                await uploadFile(e.dataTransfer.files[0]);
+            }
         };
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch('/upload', { method: 'POST', body: formData });
+                const result = await res.json();
+                alert(result.message || result.error);
+                fetchInventory();
+            } catch (err) {
+                alert('파일 업로드 중 오류가 발생했습니다.');
+            }
+        }
+
         window.onload = fetchInventory;
     </script>
 </body>
