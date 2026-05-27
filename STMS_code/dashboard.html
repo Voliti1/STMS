@@ -596,7 +596,7 @@
                 salesData.daily_total.forEach(row => {
                     weeksSet.add(getWeekRangeStr(row['날짜']));
                 });
-                weekList = Array.from(weeksSet).sort((a, b) => b.localeCompare(a));
+                weekList = Array.from(weeksSet).sort((a, b) => a.localeCompare(b));
 
                 // 2. 고유 연월 목록 빌드 (YYYY MM월)
                 const monthsSet = new Set();
@@ -604,7 +604,7 @@
                     const parts = row['날짜'].split('-');
                     monthsSet.add(`${parts[0]} ${parts[1]}월`);
                 });
-                monthList = Array.from(monthsSet).sort((a, b) => b.localeCompare(a));
+                monthList = Array.from(monthsSet).sort((a, b) => a.localeCompare(b));
 
                 // 3. 고유 분기 목록 빌드 (YYYY QX)
                 const quartersSet = new Set();
@@ -614,7 +614,7 @@
                     const q = Math.floor(d.getMonth() / 3) + 1;
                     quartersSet.add(`${y} Q${q}`);
                 });
-                quarterList = Array.from(quartersSet).sort((a, b) => b.localeCompare(a));
+                quarterList = Array.from(quartersSet).sort((a, b) => a.localeCompare(b));
 
                 // 4. 고유 반기 목록 빌드 (YYYY 전반기/후반기)
                 const halvesSet = new Set();
@@ -624,14 +624,14 @@
                     const half = d.getMonth() < 6 ? '전반기' : '후반기';
                     halvesSet.add(`${y} ${half}`);
                 });
-                halfList = Array.from(halvesSet).sort((a, b) => b.localeCompare(a));
+                halfList = Array.from(halvesSet).sort((a, b) => a.localeCompare(b));
 
                 // 5. 고유 연도 목록 빌드 (YYYY)
                 const yearsSet = new Set();
                 salesData.daily_total.forEach(row => {
                     yearsSet.add(row['날짜'].substring(0, 4));
                 });
-                yearList = Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+                yearList = Array.from(yearsSet).sort((a, b) => a.localeCompare(b));
                 
                 if (weekList.length === 0) {
                     document.getElementById('dashboard-content').style.display = 'none';
@@ -647,6 +647,10 @@
                 activePeriodType = 'week';
                 document.getElementById('period-type-selector').value = 'week';
                 buildPeriodDetailSelector();
+
+                // 8. 검색 가능한 드롭다운 적용
+                makeSearchableSelect('period-detail-selector', '조회 기간 검색...');
+                makeSearchableSelect('inventory-item-selector', '품번 검색...');
 
                 renderDashboard();
             } catch (err) {
@@ -727,7 +731,7 @@
             }
 
             selector.innerHTML = periodDetailList.map(val => `<option value="${val}">${val}</option>`).join('');
-            activePeriodDetail = periodDetailList[0] || '';
+            activePeriodDetail = periodDetailList[periodDetailList.length - 1] || '';
             selector.value = activePeriodDetail;
         }
 
@@ -775,7 +779,7 @@
 
         function navigatePeriod(dir) {
             const currentIdx = periodDetailList.indexOf(activePeriodDetail);
-            const nextIdx = currentIdx - dir;
+            const nextIdx = currentIdx + dir;
             if (nextIdx >= 0 && nextIdx < periodDetailList.length) {
                 activePeriodDetail = periodDetailList[nextIdx];
                 document.getElementById('period-detail-selector').value = activePeriodDetail;
@@ -973,23 +977,41 @@
             const xAxisLabels = getXAxisLabels(activePeriodType, subPeriods);
 
             // 서브 필터 드롭다운 채우기
-            const subFilterOptions = [`<option value="all">전체 (${typeName} 누적)</option>`]
-                .concat(subPeriods.map((val, idx) => `<option value="${val}">${xAxisLabels[idx]}</option>`))
+            let salesSubPeriods = [];
+            let salesXAxisLabels = [];
+
+            subPeriods.forEach((val, idx) => {
+                const hasSales = salesData.daily_total.some(r => isRecordInSubPeriod(r, val, activePeriodType) && (r['일일 총 매출'] || 0) > 0);
+                if (hasSales) {
+                    salesSubPeriods.push(val);
+                    salesXAxisLabels.push(xAxisLabels[idx]);
+                }
+            });
+
+            let qtySubPeriods = salesSubPeriods;
+            let qtyXAxisLabels = salesXAxisLabels;
+
+            const salesSubFilterOptions = [`<option value="all">전체 (${typeName} 누적)</option>`]
+                .concat(salesSubPeriods.map((val, idx) => `<option value="${val}">${salesXAxisLabels[idx]}</option>`))
+                .join('');
+
+            const qtySubFilterOptions = [`<option value="all">전체 (${typeName} 누적)</option>`]
+                .concat(qtySubPeriods.map((val, idx) => `<option value="${val}">${qtyXAxisLabels[idx]}</option>`))
                 .join('');
 
             const salesSelector = document.getElementById('sales-date-selector');
             const qtySelector = document.getElementById('qty-date-selector');
 
             if (salesSelector) {
-                salesSelector.innerHTML = subFilterOptions;
-                if (activeSalesSubFilter !== 'all' && !subPeriods.includes(activeSalesSubFilter)) {
+                salesSelector.innerHTML = salesSubFilterOptions;
+                if (activeSalesSubFilter !== 'all' && !salesSubPeriods.includes(activeSalesSubFilter)) {
                     activeSalesSubFilter = 'all';
                 }
                 salesSelector.value = activeSalesSubFilter;
             }
             if (qtySelector) {
-                qtySelector.innerHTML = subFilterOptions;
-                if (activeQtySubFilter !== 'all' && !subPeriods.includes(activeQtySubFilter)) {
+                qtySelector.innerHTML = qtySubFilterOptions;
+                if (activeQtySubFilter !== 'all' && !qtySubPeriods.includes(activeQtySubFilter)) {
                     activeQtySubFilter = 'all';
                 }
                 qtySelector.value = activeQtySubFilter;
@@ -1279,6 +1301,236 @@
 
             // --- 4. 재고현황 변화 그래프 호출 ---
             renderInventoryTrend();
+        }
+
+        function makeSearchableSelect(selectId, placeholder = "검색어를 입력하세요...") {
+            const select = document.getElementById(selectId);
+            if (!select) return;
+
+            // If already initialized, return
+            if (select.dataset.searchableInitialized === "true") return;
+            select.dataset.searchableInitialized = "true";
+
+            // Hide original select
+            select.style.display = 'none';
+
+            // Create wrapper
+            const wrapper = document.createElement('div');
+            wrapper.className = 'relative flex-1 min-w-0';
+            if (selectId === 'inventory-item-selector') {
+                wrapper.className = 'relative w-full max-w-[240px]';
+            }
+
+            // Create trigger button
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `w-full flex items-center justify-between bg-white border border-slate-300 text-slate-800 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100 p-2.5 rounded-lg font-bold text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 truncate`;
+            button.innerHTML = `
+                <span class="truncate text-left flex-1">선택 안 됨</span>
+                <svg class="w-4 h-4 ml-1.5 text-slate-400 dark:text-slate-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            `;
+
+            // Create dropdown panel
+            const panel = document.createElement('div');
+            panel.className = `absolute left-0 right-0 z-50 mt-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl hidden flex flex-col max-h-64 overflow-hidden`;
+
+            // Create search input container
+            const searchContainer = document.createElement('div');
+            searchContainer.className = 'p-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-1.5';
+            searchContainer.innerHTML = `
+                <svg class="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <input type="text" class="w-full bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs p-1.5 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" placeholder="${placeholder}">
+            `;
+            const searchInput = searchContainer.querySelector('input');
+
+            // Create options list container
+            const optionsContainer = document.createElement('div');
+            optionsContainer.className = 'overflow-y-auto flex-1 py-1 max-h-48 text-xs text-slate-700 dark:text-slate-300';
+
+            panel.appendChild(searchContainer);
+            panel.appendChild(optionsContainer);
+            wrapper.appendChild(button);
+            wrapper.appendChild(panel);
+
+            // Insert wrapper next to original select
+            select.parentNode.insertBefore(wrapper, select.nextSibling);
+
+            // Toggle panel
+            button.addEventListener('click', (e) => {
+                e.stopPropagation();
+                document.querySelectorAll('[id^="custom-select-wrapper-"] .absolute').forEach(p => {
+                    if (p !== panel) p.classList.add('hidden');
+                });
+                
+                const isHidden = panel.classList.contains('hidden');
+                if (isHidden) {
+                    panel.classList.remove('hidden');
+                    searchInput.value = '';
+                    filterOptions('');
+                    setTimeout(() => searchInput.focus(), 50);
+                } else {
+                    panel.classList.add('hidden');
+                }
+            });
+
+            // Close when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!wrapper.contains(e.target)) {
+                    panel.classList.add('hidden');
+                }
+            });
+
+            // Filter function
+            searchInput.addEventListener('input', (e) => {
+                filterOptions(e.target.value);
+            });
+
+            function filterOptions(query) {
+                const q = query.toLowerCase().trim();
+                const items = optionsContainer.querySelectorAll('.option-item');
+                const groups = optionsContainer.querySelectorAll('.group-container');
+
+                if (groups.length > 0) {
+                    groups.forEach(group => {
+                        let hasVisibleOption = false;
+                        const groupItems = group.querySelectorAll('.option-item');
+                        groupItems.forEach(item => {
+                            const txt = item.textContent.toLowerCase();
+                            if (txt.includes(q)) {
+                                item.style.display = 'block';
+                                hasVisibleOption = true;
+                            } else {
+                                item.style.display = 'none';
+                            }
+                        });
+                        if (hasVisibleOption) {
+                            group.style.display = 'block';
+                        } else {
+                            group.style.display = 'none';
+                        }
+                    });
+                } else {
+                    items.forEach(item => {
+                        const txt = item.textContent.toLowerCase();
+                        if (txt.includes(q)) {
+                            item.style.display = 'block';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                }
+            }
+
+            // Function to rebuild options list
+            function rebuildOptions() {
+                optionsContainer.innerHTML = '';
+                
+                const children = Array.from(select.children);
+                let selectedText = '';
+
+                if (children.length === 0) {
+                    button.querySelector('span').textContent = '선택 안 됨';
+                    return;
+                }
+
+                children.forEach(child => {
+                    if (child.tagName === 'OPTGROUP') {
+                        const groupContainer = document.createElement('div');
+                        groupContainer.className = 'group-container';
+                        
+                        const groupLabel = document.createElement('div');
+                        groupLabel.className = 'px-3 py-1 font-bold text-[10px] text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/50 uppercase tracking-wider sticky top-0';
+                        groupLabel.textContent = child.label;
+                        groupContainer.appendChild(groupLabel);
+
+                        Array.from(child.children).forEach(opt => {
+                            const optItem = createOptionElement(opt);
+                            groupContainer.appendChild(optItem);
+                            if (opt.value === select.value) {
+                                selectedText = opt.textContent;
+                            }
+                        });
+                        optionsContainer.appendChild(groupContainer);
+                    } else if (child.tagName === 'OPTION') {
+                        const optItem = createOptionElement(child);
+                        optionsContainer.appendChild(optItem);
+                        if (child.value === select.value) {
+                            selectedText = child.textContent;
+                        }
+                    }
+                });
+
+                if (selectedText) {
+                    button.querySelector('span').textContent = selectedText;
+                } else {
+                    const firstOpt = select.querySelector('option');
+                    button.querySelector('span').textContent = firstOpt ? firstOpt.textContent : '선택 안 됨';
+                }
+            }
+
+            function createOptionElement(option) {
+                const item = document.createElement('div');
+                item.className = 'option-item px-3 py-2 hover:bg-blue-50 dark:hover:bg-slate-800 cursor-pointer transition truncate';
+                item.textContent = option.textContent;
+                item.dataset.value = option.value;
+                if (option.value === select.value) {
+                    item.classList.add('bg-blue-50/50', 'dark:bg-slate-800/50', 'font-semibold', 'text-blue-600', 'dark:text-blue-400');
+                }
+
+                item.addEventListener('click', () => {
+                    select.value = option.value;
+                    button.querySelector('span').textContent = option.textContent;
+                    panel.classList.add('hidden');
+                    
+                    optionsContainer.querySelectorAll('.option-item').forEach(i => {
+                        i.classList.remove('bg-blue-50/50', 'dark:bg-slate-800/50', 'font-semibold', 'text-blue-600', 'dark:text-blue-400');
+                    });
+                    item.classList.add('bg-blue-50/50', 'dark:bg-slate-800/50', 'font-semibold', 'text-blue-600', 'dark:text-blue-400');
+
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+
+                return item;
+            }
+
+            // Rebuild immediately
+            rebuildOptions();
+
+            // Listen for select element mutations
+            const observer = new MutationObserver((mutations) => {
+                rebuildOptions();
+            });
+            observer.observe(select, { childList: true, subtree: true });
+
+            // Also intercept setter on value property
+            const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+            Object.defineProperty(select, 'value', {
+                get: function() {
+                    return descriptor.get.call(this);
+                },
+                set: function(val) {
+                    descriptor.set.call(this, val);
+                    const options = optionsContainer.querySelectorAll('.option-item');
+                    let found = false;
+                    options.forEach(opt => {
+                        if (opt.dataset.value === String(val)) {
+                            opt.classList.add('bg-blue-50/50', 'dark:bg-slate-800/50', 'font-semibold', 'text-blue-600', 'dark:text-blue-400');
+                            button.querySelector('span').textContent = opt.textContent;
+                            found = true;
+                        } else {
+                            opt.classList.remove('bg-blue-50/50', 'dark:bg-slate-800/50', 'font-semibold', 'text-blue-600', 'dark:text-blue-400');
+                        }
+                    });
+                    if (!found) {
+                        rebuildOptions();
+                    }
+                },
+                configurable: true
+            });
         }
 
         window.onload = initDashboard;
