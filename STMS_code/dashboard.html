@@ -493,19 +493,20 @@
                 const parts = detail.split(' ');
                 if (parts.length < 2) return false;
                 const y = parts[0];
-                const q = parseInt(parts[1].replace('Q', ''));
-                const d = new Date(dateStr);
-                const rowY = d.getFullYear().toString();
-                const rowQ = Math.floor(d.getMonth() / 3) + 1;
+                const q = parseInt(parts[1].replace('Q', ''), 10);
+                const dateParts = dateStr.split('-');
+                const rowY = dateParts[0];
+                const rowM = parseInt(dateParts[1], 10);
+                const rowQ = Math.floor((rowM - 1) / 3) + 1;
                 return rowY === y && rowQ === q;
             } else if (type === 'half') {
                 const parts = detail.split(' ');
                 if (parts.length < 2) return false;
                 const y = parts[0];
                 const half = parts[1];
-                const d = new Date(dateStr);
-                const rowY = d.getFullYear().toString();
-                const rowM = d.getMonth() + 1;
+                const dateParts = dateStr.split('-');
+                const rowY = dateParts[0];
+                const rowM = parseInt(dateParts[1], 10);
                 if (rowY !== y) return false;
                 return half === '전반기' ? rowM <= 6 : rowM > 6;
             } else if (type === 'year') {
@@ -560,17 +561,21 @@
                 } else if (subFilter.includes('Q')) {
                     const parts = subFilter.split(' ');
                     const y = parts[0];
-                    const q = parseInt(parts[1].replace('Q', ''));
-                    const d = new Date(r['날짜']);
-                    return d.getFullYear().toString() === y && (Math.floor(d.getMonth() / 3) + 1) === q;
+                    const q = parseInt(parts[1].replace('Q', ''), 10);
+                    const dateParts = r['날짜'].split('-');
+                    const yVal = dateParts[0];
+                    const mVal = parseInt(dateParts[1], 10);
+                    const qVal = Math.floor((mVal - 1) / 3) + 1;
+                    return yVal === y && qVal === q;
                 } else if (subFilter.includes('반기')) {
                     const parts = subFilter.split(' ');
                     const y = parts[0];
                     const half = parts[1];
-                    const d = new Date(r['날짜']);
-                    if (d.getFullYear().toString() !== y) return false;
-                    const m = d.getMonth() + 1;
-                    return half === '전반기' ? m <= 6 : m > 6;
+                    const dateParts = r['날짜'].split('-');
+                    const yVal = dateParts[0];
+                    if (yVal !== y) return false;
+                    const mVal = parseInt(dateParts[1], 10);
+                    return half === '전반기' ? mVal <= 6 : mVal > 6;
                 }
             }
             return false;

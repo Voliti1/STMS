@@ -3,6 +3,7 @@ import os
 import threading
 import re
 import shutil
+import json
 from datetime import datetime
 from flask import Flask, request, jsonify
 import pandas as pd
@@ -16,6 +17,10 @@ DB_FILE = '부품_재고현황.xlsx'
 SAVE_FOLDER = '납품 명세서'
 PRICE_FILE = '단가.xlsx'
 SALES_FILE = '매출.xlsx'
+
+# 정규식 패턴 사전 컴파일 및 매출 데이터 캐시
+CSV_DATE_PATTERN = re.compile(r'_(\d{8})\.csv$')
+_sales_cache = {}
 
 def get_price_file():
     # 작업 디렉토리에 단가.xlsx가 없으면 dist 또는 Backup 폴더에서 가져옵니다.
@@ -35,10 +40,31 @@ def calculate_sales():
     if not os.path.exists(SAVE_FOLDER):
         os.makedirs(SAVE_FOLDER)
         
-    csv_files = [f for f in os.listdir(SAVE_FOLDER) if f.endswith('.csv')]
+    csv_files = sorted([f for f in os.listdir(SAVE_FOLDER) if f.endswith('.csv')])
     if not csv_files:
         return None
-        
+
+    # 캐시 키 생성 (파일 이름, 수정 시간, 크기 포함)
+    cache_key_parts = []
+    for f in csv_files:
+        path = os.path.join(SAVE_FOLDER, f)
+        try:
+            stat = os.stat(path)
+            cache_key_parts.append(f"{f}:{stat.st_mtime}:{stat.st_size}")
+        except Exception:
+            cache_key_parts.append(f)
+    cache_key = "|".join(cache_key_parts)
+    
+    if os.path.exists(PRICE_FILE):
+        try:
+            cache_key += f"|price:{os.path.getmtime(PRICE_FILE)}"
+        except Exception:
+            pass
+
+    global _sales_cache
+    if os.path.exists(SALES_FILE) and _sales_cache.get('key') == cache_key:
+        return _sales_cache['data']
+
     price_df = pd.read_excel(PRICE_FILE)
     price_df['품번'] = price_df['품번'].astype(str).str.strip()
     price_dict = dict(zip(price_df['품번'], price_df['단가']))
@@ -49,7 +75,7 @@ def calculate_sales():
         csv_path = os.path.join(SAVE_FOLDER, csv_file)
         
         # 날짜 정규식 파싱 시도 (실패 시 파일 수정일로 폴백)
-        match = re.search(r'_(\d{8})\.csv$', csv_file)
+        match = CSV_DATE_PATTERN.search(csv_file)
         if match:
             date_str = match.group(1)
             formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
@@ -77,17 +103,22 @@ def calculate_sales():
         if '품번' not in df.columns or '납품수량' not in df.columns:
             continue
             
-        for _, row in df.iterrows():
-            p_no = str(row['품번']).strip()
+        cols_map = {col: i for i, col in enumerate(df.columns)}
+        p_no_idx = cols_map.get('품번')
+        qty_idx = cols_map.get('납품수량')
+        name_idx = cols_map.get('품명')
+        
+        for row in df.values:
+            p_no = str(row[p_no_idx]).strip() if p_no_idx is not None else ''
             if not p_no or p_no == 'nan':
                 continue
             try:
-                qty = float(str(row['납품수량']).replace(',', ''))
+                qty = float(str(row[qty_idx]).replace(',', '')) if qty_idx is not None else 0.0
             except ValueError:
                 qty = 0.0
                 
             unit_price = price_dict.get(p_no, 0)
-            p_name = price_name_dict.get(p_no, str(row.get('품명', '')).strip())
+            p_name = str(row[name_idx]).strip() if (name_idx is not None and pd.notna(row[name_idx])) else price_name_dict.get(p_no, '')
             amount = unit_price * qty
             
             all_records.append({
@@ -151,7 +182,7 @@ def calculate_sales():
         half_yearly_total.to_excel(writer, sheet_name='반기 총 매출', index=False)
         yearly_total.to_excel(writer, sheet_name='연간 총 매출', index=False)
         
-    return {
+    result_data = {
         'daily_item': daily_item.to_dict(orient='records'),
         'daily_total': daily_total.to_dict(orient='records'),
         'weekly_total': weekly_total.to_dict(orient='records'),
@@ -161,6 +192,10 @@ def calculate_sales():
         'yearly_total': yearly_total.to_dict(orient='records'),
         'inventory': parse_inventory()
     }
+    
+    _sales_cache['key'] = cache_key
+    _sales_cache['data'] = result_data
+    return result_data
 
 def parse_inventory(file_path=None):
     if file_path is None:
@@ -184,14 +219,14 @@ def parse_inventory(file_path=None):
         inventory_list = []
         current_freq = ""
         
-        for idx, row in df.iterrows():
+        for row in df.values:
             val0 = str(row[0]).strip() if pd.notna(row[0]) else ""
             if "납품 빈도" in val0:
                 current_freq = val0.replace("납품 빈도 :", "").strip()
                 continue
                 
             val1 = str(row[1]).strip() if pd.notna(row[1]) else ""
-            if val1 == "신품번" or val1 == "" or val0 == "순번":
+            if val1 == "신품번" or val1 == "" or str(row[0]).strip() == "순번":
                 continue
                 
             p_no = val1
@@ -285,7 +320,6 @@ def upload_file():
         json_file_path = '부품_재고현황.json'
         before_inventory = parse_inventory(DB_FILE)
         
-        import json
         try:
             history_data = {}
             if os.path.exists(json_file_path):
@@ -390,7 +424,6 @@ def get_inventory_history():
     json_file_path = '부품_재고현황.json'
     history = []
     
-    import json
     if os.path.exists(json_file_path):
         try:
             with open(json_file_path, 'r', encoding='utf-8') as f:
