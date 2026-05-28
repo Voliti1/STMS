@@ -1389,8 +1389,47 @@
                 filterOptions(e.target.value);
             });
 
-            function filterOptions(query) {
+            function isOptionMatched(txt, val, query) {
                 const q = query.toLowerCase().trim();
+                if (!q) return true;
+
+                // 1. Standard text/value inclusion (case-insensitive)
+                const txtLower = txt.toLowerCase();
+                const valLower = val.toLowerCase();
+                if (txtLower.includes(q) || valLower.includes(q)) {
+                    return true;
+                }
+
+                // 2. Hyphen-free, space-free matching
+                const clean = (s) => s.replace(/[-\s~]/g, '');
+                const cleanTxt = clean(txtLower);
+                const cleanVal = clean(valLower);
+                const cleanQ = clean(q);
+                if (cleanQ && (cleanTxt.includes(cleanQ) || cleanVal.includes(cleanQ))) {
+                    return true;
+                }
+
+                // 3. Weekly range containment check:
+                // If option matches YYYY-MM-DD ~ YYYY-MM-DD, check if any of its 7 days matches the clean query.
+                const weekPattern = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/;
+                if (weekPattern.test(txt)) {
+                    try {
+                        const days = get7DaysOfWeek(txt);
+                        for (const day of days) {
+                            const cleanDay = clean(day);
+                            if (cleanDay.includes(cleanQ)) {
+                                return true;
+                            }
+                        }
+                    } catch (e) {
+                        // ignore error
+                    }
+                }
+
+                return false;
+            }
+
+            function filterOptions(query) {
                 const items = optionsContainer.querySelectorAll('.option-item');
                 const groups = optionsContainer.querySelectorAll('.group-container');
 
@@ -1399,8 +1438,9 @@
                         let hasVisibleOption = false;
                         const groupItems = group.querySelectorAll('.option-item');
                         groupItems.forEach(item => {
-                            const txt = item.textContent.toLowerCase();
-                            if (txt.includes(q)) {
+                            const txt = item.textContent;
+                            const val = item.dataset.value || '';
+                            if (isOptionMatched(txt, val, query)) {
                                 item.style.display = 'block';
                                 hasVisibleOption = true;
                             } else {
@@ -1415,8 +1455,9 @@
                     });
                 } else {
                     items.forEach(item => {
-                        const txt = item.textContent.toLowerCase();
-                        if (txt.includes(q)) {
+                        const txt = item.textContent;
+                        const val = item.dataset.value || '';
+                        if (isOptionMatched(txt, val, query)) {
                             item.style.display = 'block';
                         } else {
                             item.style.display = 'none';
